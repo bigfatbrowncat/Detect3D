@@ -9,6 +9,12 @@
 using namespace cv;
 using namespace std;
 
+typedef enum {
+	st_top_bottom = 1,
+	st_side_by_side = 2,
+	st_none = 0
+} stereo_type_t;
+
 double getPSNR(const Mat& I1, const Mat& I2)
 {
 	Mat s1;
@@ -107,7 +113,7 @@ void analyze_pair(const Mat& part1, const Mat& part2, double& probability, bool&
 	isLeft = fullShift <= 0;
 }
 
-void analyze_stereo(const Mat& image)
+void analyze_stereo(const Mat& image, stereo_type_t& stereo, double& probability, bool& isLeft)
 {
 	cv::Range part1HRange(0, image.size().height / 2 - 1);
 	cv::Range part2HRange(image.size().height / 2, image.size().height - 1);
@@ -125,26 +131,66 @@ void analyze_stereo(const Mat& image)
 	analyze_pair(part1H, part2H, topBottomProbability, topBottomIsLeft);
 	analyze_pair(part1W, part2W, sideBySideProbability, sideBySideIsLeft);
 
-	std::cout << "{ \"top-bottom\": " << topBottomProbability << ", \"top-bottom-is-left\": " << (topBottomIsLeft ? "true" : "false") << " }" << std::endl;
-	std::cout << "{ \"side-by-side\": " << sideBySideProbability << ", \"side-by-side-is-left\": " << (sideBySideIsLeft ? "true" : "false") << " }" << std::endl;
+	if (fmax(topBottomProbability, sideBySideProbability) <= 0.5)
+	{
+		stereo = st_none;
+		probability = 1.0 - fmax(topBottomProbability, sideBySideProbability);
+	}
+	else if (topBottomProbability > sideBySideProbability)
+	{
+		stereo = st_top_bottom;
+		probability = topBottomProbability;
+		isLeft = topBottomIsLeft;
+	}
+	else
+	{
+		stereo = st_side_by_side;
+		probability = sideBySideProbability;
+		isLeft = sideBySideIsLeft;
+	}
 }
 
 int main(int argc, char** argv)
 {
-	if (argc != 2)
+	if (argc < 2)
 	{
-		cout << " Usage: detect3d <image_file>" << endl;
+		cout << " Usage: detect3d <image_file> [<image_file>...]" << endl;
 		return -1;
 	}
 
-	Mat image;
-	image = imread(argv[1], CV_LOAD_IMAGE_COLOR);   // Read the file
-	if (!image.data)                              // Check for invalid input
+	std::cout << "[" << std::endl;
+	for (int i = 1; i < argc; i++)
 	{
-		cerr << "Could not open or find the image" << std::endl;
-		return -1;
-	}
+		Mat image;
+		image = imread(argv[i], CV_LOAD_IMAGE_COLOR);   // Read the file
+		if (!image.data)                              // Check for invalid input
+		{
+			cerr << "Could not open or find the image" << std::endl;
+			return -1;
+		}
 
-	analyze_stereo(image);
+		stereo_type_t stereo;
+		double probability;
+		bool isLeft;
+		analyze_stereo(image, stereo, probability, isLeft);
+
+		std::cout << "\t{\"stereo\": \"";
+		switch (stereo)
+		{
+			case st_top_bottom:
+				std::cout << "top-bottom";
+				break;
+			case st_side_by_side:
+				std::cout << "side-by-side";
+				break;
+			case st_none:
+				std::cout << "none";
+				break;
+		}
+		std::cout << "\", \"probability\": " << probability << ", \"left-first\": " << (isLeft ? "true" : "false") << "}";
+		if (i < argc - 1) std::cout << ",";
+		std::cout << std::endl;
+	}
+	std::cout << "]" << std::endl;
 	return 0;
 }
