@@ -1,6 +1,5 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgcodecs/imgcodecs.hpp>
-#include <opencv2/imgcodecs/imgcodecs_c.h>
 #include <opencv2/imgproc/imgproc.hpp>
 
 #include <assert.h>
@@ -44,30 +43,8 @@ double PSNRShift(int shift, const Mat& I1, const Mat& I2) {
 	}
 }
 
-int main(int argc, char** argv)
+void analyze_pair(const Mat& part1, const Mat& part2, double& fullShift, double& avgPSNR, double& maxPSNR)
 {
-	if (argc != 2)
-	{
-		cout << " Usage: detect3d <image_file>" << endl;
-		return -1;
-	}
-
-	Mat image;
-	image = imread(argv[1], CV_LOAD_IMAGE_COLOR);   // Read the file
-
-	cv::Range part1HRange(0, image.size().height / 2 - 1);
-	cv::Range part2HRange(image.size().height / 2, image.size().height - 1);
-
-	Mat part1 = cv::Mat(image, part1HRange, Range::all());
-	Mat part2 = cv::Mat(image, part2HRange, Range::all());
-
-
-	if (!image.data)                              // Check for invalid input
-	{
-		cerr << "Could not open or find the image" << std::endl;
-		return -1;
-	}
-
 	// Scaling by 2
 	std::vector<Mat> scaledPart1, scaledPart2;
 	scaledPart1.push_back(part1);
@@ -108,7 +85,9 @@ int main(int argc, char** argv)
 	}
 
 	// Averaging the results
-	double avgPSNR = 0, maxPSNR = 0, fullShift = shifts.back();
+	avgPSNR = 0;
+	maxPSNR = 0;
+	fullShift = shifts.back();
 	for (size_t i = 0; i < scaledPart1.size(); i++) {
 		avgPSNR += maxPSNRValues[i];
 		if (maxPSNR < maxPSNRValues[i]) {
@@ -117,6 +96,32 @@ int main(int argc, char** argv)
 	}
 	fullShift /= (part1.size().width);
 	avgPSNR /= maxPSNRValues.size();
+}
+
+int main(int argc, char** argv)
+{
+	if (argc != 2)
+	{
+		cout << " Usage: detect3d <image_file>" << endl;
+		return -1;
+	}
+
+	Mat image;
+	image = imread(argv[1], CV_LOAD_IMAGE_COLOR);   // Read the file
+	if (!image.data)                              // Check for invalid input
+	{
+		cerr << "Could not open or find the image" << std::endl;
+		return -1;
+	}
+
+	cv::Range part1HRange(0, image.size().height / 2 - 1);
+	cv::Range part2HRange(image.size().height / 2, image.size().height - 1);
+
+	Mat part1 = cv::Mat(image, part1HRange, Range::all());
+	Mat part2 = cv::Mat(image, part2HRange, Range::all());
+
+	double fullShift, avgPSNR, maxPSNR;
+	analyze_pair(part1, part2, fullShift, avgPSNR, maxPSNR);
 
 	std::cout << "{ \"avgShift\": \"" << fullShift << "\", \"avgPSNR\": \"" << avgPSNR << "\", \"maxPSNR\": \"" << maxPSNR << "\" }" << std::endl;
 
