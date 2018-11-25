@@ -104,16 +104,16 @@ void analyze_pair_psnr(const Mat& part1, const Mat& part2, double& fullShift, do
 	avgPSNR /= maxPSNRValues.size();
 }
 
-void analyze_pair(const Mat& part1, const Mat& part2, double& probability, bool& isLeft)
+void analyze_pair(const Mat& part1, const Mat& part2, double& probability, double& isLeft)
 {
 	double fullShift, avgPSNR, maxPSNR;
 	analyze_pair_psnr(part1, part2, fullShift, avgPSNR, maxPSNR);
 
 	probability = fmin((avgPSNR + maxPSNR) * 0.5 / 30, 1.0);
-	isLeft = fullShift <= 0;
+	isLeft = -fullShift * 100;
 }
 
-void analyze_stereo(const Mat& image, stereo_type_t& stereo, double& probability, bool& isLeft)
+void analyze_stereo(const Mat& image, stereo_type_t& stereo, double& probability, double& isLeft)
 {
 	cv::Range part1HRange(0, image.size().height / 2 - 1);
 	cv::Range part2HRange(image.size().height / 2, image.size().height - 1);
@@ -126,7 +126,7 @@ void analyze_stereo(const Mat& image, stereo_type_t& stereo, double& probability
 	Mat part2W = cv::Mat(image, Range::all(), part2WRange);
 
 	double topBottomProbability, sideBySideProbability;
-	bool topBottomIsLeft, sideBySideIsLeft;
+	double topBottomIsLeft, sideBySideIsLeft;
 
 	analyze_pair(part1H, part2H, topBottomProbability, topBottomIsLeft);
 	analyze_pair(part1W, part2W, sideBySideProbability, sideBySideIsLeft);
@@ -135,6 +135,7 @@ void analyze_stereo(const Mat& image, stereo_type_t& stereo, double& probability
 	{
 		stereo = st_none;
 		probability = 1.0 - fmax(topBottomProbability, sideBySideProbability);
+		isLeft = 0;
 	}
 	else if (topBottomProbability > sideBySideProbability)
 	{
@@ -171,7 +172,7 @@ int main(int argc, char** argv)
 
 		stereo_type_t stereo;
 		double probability;
-		bool isLeft;
+		double isLeft;
 		analyze_stereo(image, stereo, probability, isLeft);
 
 		std::cout << "\t{\"stereo\": \"";
@@ -187,7 +188,7 @@ int main(int argc, char** argv)
 				std::cout << "none";
 				break;
 		}
-		std::cout << "\", \"probability\": " << probability << ", \"left-first\": " << (isLeft ? "true" : "false") << "}";
+		std::cout << "\", \"probability\": " << probability << ", \"left-first\": " << isLeft << "}";
 		if (i < argc - 1) std::cout << ",";
 		std::cout << std::endl;
 	}
