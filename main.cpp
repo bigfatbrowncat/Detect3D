@@ -1,6 +1,5 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgcodecs/imgcodecs.hpp>
-#include <opencv2/imgcodecs/imgcodecs_c.h>
 #include <opencv2/imgproc/imgproc.hpp>
 
 #include <assert.h>
@@ -9,6 +8,12 @@
 
 using namespace cv;
 using namespace std;
+
+typedef enum {
+	st_top_bottom = 1,
+	st_side_by_side = 2,
+	st_none = 0
+} stereo_type_t;
 
 double getPSNR(const Mat& I1, const Mat& I2)
 {
@@ -44,30 +49,8 @@ double PSNRShift(int shift, const Mat& I1, const Mat& I2) {
 	}
 }
 
-int main(int argc, char** argv)
+void analyze_pair_psnr(const Mat& part1, const Mat& part2, double& fullShift, double& avgPSNR, double& maxPSNR)
 {
-	if (argc != 2)
-	{
-		cout << " Usage: detect3d <image_file>" << endl;
-		return -1;
-	}
-
-	Mat image;
-	image = imread(argv[1], CV_LOAD_IMAGE_COLOR);   // Read the file
-
-	cv::Range part1HRange(0, image.size().height / 2 - 1);
-	cv::Range part2HRange(image.size().height / 2, image.size().height - 1);
-
-	Mat part1 = cv::Mat(image, part1HRange, Range::all());
-	Mat part2 = cv::Mat(image, part2HRange, Range::all());
-
-
-	if (!image.data)                              // Check for invalid input
-	{
-		cerr << "Could not open or find the image" << std::endl;
-		return -1;
-	}
-
 	// Scaling by 2
 	std::vector<Mat> scaledPart1, scaledPart2;
 	scaledPart1.push_back(part1);
@@ -108,7 +91,9 @@ int main(int argc, char** argv)
 	}
 
 	// Averaging the results
-	double avgPSNR = 0, maxPSNR = 0, fullShift = shifts.back();
+	avgPSNR = 0;
+	maxPSNR = 0;
+	fullShift = shifts.back();
 	for (size_t i = 0; i < scaledPart1.size(); i++) {
 		avgPSNR += maxPSNRValues[i];
 		if (maxPSNR < maxPSNRValues[i]) {
@@ -117,8 +102,96 @@ int main(int argc, char** argv)
 	}
 	fullShift /= (part1.size().width);
 	avgPSNR /= maxPSNRValues.size();
+}
 
-	std::cout << "{ \"avgShift\": \"" << fullShift << "\", \"avgPSNR\": \"" << avgPSNR << "\", \"maxPSNR\": \"" << maxPSNR << "\" }" << std::endl;
+void analyze_pair(const Mat& part1, const Mat& part2, double& probability, double& isLeft)
+{
+	double fullShift, avgPSNR, maxPSNR;
+	analyze_pair_psnr(part1, part2, fullShift, avgPSNR, maxPSNR);
 
+	probability = fmin((avgPSNR + maxPSNR) * 0.5 / 30, 1.0);
+	isLeft = -fullShift * 100;
+}
+
+void analyze_stereo(const Mat& image, stereo_type_t& stereo, double& probability, double& isLeft)
+{
+	cv::Range part1HRange(0, image.size().height / 2 - 1);
+	cv::Range part2HRange(image.size().height / 2, image.size().height - 1);
+	cv::Range part1WRange(0, image.size().width / 2 - 1);
+	cv::Range part2WRange(image.size().width / 2, image.size().width - 1);
+
+	Mat part1H = cv::Mat(image, part1HRange, Range::all());
+	Mat part2H = cv::Mat(image, part2HRange, Range::all());
+	Mat part1W = cv::Mat(image, Range::all(), part1WRange);
+	Mat part2W = cv::Mat(image, Range::all(), part2WRange);
+
+	double topBottomProbability, sideBySideProbability;
+	double topBottomIsLeft, sideBySideIsLeft;
+
+	analyze_pair(part1H, part2H, topBottomProbability, topBottomIsLeft);
+	analyze_pair(part1W, part2W, sideBySideProbability, sideBySideIsLeft);
+
+	if (fmax(topBottomProbability, sideBySideProbability) <= 0.5)
+	{
+		stereo = st_none;
+		probability = 1.0 - fmax(topBottomProbability, sideBySideProbability);
+		isLeft = 0;
+	}
+	else if (topBottomProbability > sideBySideProbability)
+	{
+		stereo = st_top_bottom;
+		probability = topBottomProbability;
+		isLeft = topBottomIsLeft;
+	}
+	else
+	{
+		stereo = st_side_by_side;
+		probability = sideBySideProbability;
+		isLeft = sideBySideIsLeft;
+	}
+}
+
+int main(int argc, char** argv)
+{
+	if (argc < 2)
+	{
+		cout << " Usage: detect3d <image_file> [<image_file>...]" << endl;
+		return -1;
+	}
+
+	std::cout << "[" << std::endl;
+	for (int i = 1; i < argc; i++)
+	{
+		Mat image;
+		image = imread(argv[i], CV_LOAD_IMAGE_COLOR);   // Read the file
+		if (!image.data)                              // Check for invalid input
+		{
+			cerr << "Could not open or find the image" << std::endl;
+			return -1;
+		}
+
+		stereo_type_t stereo;
+		double probability;
+		double isLeft;
+		analyze_stereo(image, stereo, probability, isLeft);
+
+		std::cout << "\t{\"stereo\": \"";
+		switch (stereo)
+		{
+			case st_top_bottom:
+				std::cout << "top-bottom";
+				break;
+			case st_side_by_side:
+				std::cout << "side-by-side";
+				break;
+			case st_none:
+				std::cout << "none";
+				break;
+		}
+		std::cout << "\", \"probability\": " << probability << ", \"left-first\": " << isLeft << "}";
+		if (i < argc - 1) std::cout << ",";
+		std::cout << std::endl;
+	}
+	std::cout << "]" << std::endl;
 	return 0;
 }
