@@ -43,7 +43,7 @@ double PSNRShift(int shift, const Mat& I1, const Mat& I2) {
 	}
 }
 
-void analyze_pair(const Mat& part1, const Mat& part2, double& fullShift, double& avgPSNR, double& maxPSNR)
+void analyze_pair_psnr(const Mat& part1, const Mat& part2, double& fullShift, double& avgPSNR, double& maxPSNR)
 {
 	// Scaling by 2
 	std::vector<Mat> scaledPart1, scaledPart2;
@@ -98,6 +98,37 @@ void analyze_pair(const Mat& part1, const Mat& part2, double& fullShift, double&
 	avgPSNR /= maxPSNRValues.size();
 }
 
+void analyze_pair(const Mat& part1, const Mat& part2, double& probability, bool& isLeft)
+{
+	double fullShift, avgPSNR, maxPSNR;
+	analyze_pair_psnr(part1, part2, fullShift, avgPSNR, maxPSNR);
+
+	probability = fmin((avgPSNR + maxPSNR) * 0.5 / 30, 1.0);
+	isLeft = fullShift <= 0;
+}
+
+void analyze_stereo(const Mat& image)
+{
+	cv::Range part1HRange(0, image.size().height / 2 - 1);
+	cv::Range part2HRange(image.size().height / 2, image.size().height - 1);
+	cv::Range part1WRange(0, image.size().width / 2 - 1);
+	cv::Range part2WRange(image.size().width / 2, image.size().width - 1);
+
+	Mat part1H = cv::Mat(image, part1HRange, Range::all());
+	Mat part2H = cv::Mat(image, part2HRange, Range::all());
+	Mat part1W = cv::Mat(image, Range::all(), part1WRange);
+	Mat part2W = cv::Mat(image, Range::all(), part2WRange);
+
+	double topBottomProbability, sideBySideProbability;
+	bool topBottomIsLeft, sideBySideIsLeft;
+
+	analyze_pair(part1H, part2H, topBottomProbability, topBottomIsLeft);
+	analyze_pair(part1W, part2W, sideBySideProbability, sideBySideIsLeft);
+
+	std::cout << "{ \"top-bottom\": " << topBottomProbability << ", \"top-bottom-is-left\": " << (topBottomIsLeft ? "true" : "false") << " }" << std::endl;
+	std::cout << "{ \"side-by-side\": " << sideBySideProbability << ", \"side-by-side-is-left\": " << (sideBySideIsLeft ? "true" : "false") << " }" << std::endl;
+}
+
 int main(int argc, char** argv)
 {
 	if (argc != 2)
@@ -114,16 +145,6 @@ int main(int argc, char** argv)
 		return -1;
 	}
 
-	cv::Range part1HRange(0, image.size().height / 2 - 1);
-	cv::Range part2HRange(image.size().height / 2, image.size().height - 1);
-
-	Mat part1 = cv::Mat(image, part1HRange, Range::all());
-	Mat part2 = cv::Mat(image, part2HRange, Range::all());
-
-	double fullShift, avgPSNR, maxPSNR;
-	analyze_pair(part1, part2, fullShift, avgPSNR, maxPSNR);
-
-	std::cout << "{ \"avgShift\": \"" << fullShift << "\", \"avgPSNR\": \"" << avgPSNR << "\", \"maxPSNR\": \"" << maxPSNR << "\" }" << std::endl;
-
+	analyze_stereo(image);
 	return 0;
 }
